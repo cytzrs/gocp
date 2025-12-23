@@ -16,8 +16,8 @@ func fileSize(path string) (int64, error) {
 	return fi.Size(), nil
 }
 
-func Worker(p string, format string, quality int) ([]byte, error) {
-	img := gocv.IMRead(p, gocv.IMReadColor)
+func Compress(imgPath, format string, quality int) ([]byte, error) {
+	img := gocv.IMRead(imgPath, gocv.IMReadColor)
 
 	defer img.Close()
 
@@ -37,7 +37,8 @@ func Worker(p string, format string, quality int) ([]byte, error) {
 func encodeImageToWebP(img gocv.Mat, quality int, format string) ([]byte, error) {
 	// gocv.IMEncode accepts extension string and Mat, returns []byte
 	// quality param for webp: IMWRITE_WEBP_QUALITY
-	params := []int{gocv.IMWriteJpegQuality, quality,
+	params := []int{
+		gocv.IMWriteJpegQuality, quality,
 		gocv.IMWriteJpegOptimize, 1,
 		gocv.IMWriteJpegChromaQuality, quality,
 	}
@@ -66,7 +67,6 @@ func encodeImageToWebP(img gocv.Mat, quality int, format string) ([]byte, error)
 
 	gocv.GaussianBlur(img, &dst, ksize, sigmaX, sigmaY, borderType)
 
-	//_img, _ := test(img)
 	buf, err := gocv.IMEncodeWithParams(gocv.FileExt(ext), dst, params)
 	if err != nil {
 		return nil, err
@@ -74,7 +74,7 @@ func encodeImageToWebP(img gocv.Mat, quality int, format string) ([]byte, error)
 	return buf.GetBytes(), nil
 }
 
-func test(src gocv.Mat) (gocv.Mat, error) {
+func Optimize(src gocv.Mat) (gocv.Mat, error) {
 	hsv := gocv.NewMat()
 	defer hsv.Close()
 	gocv.CvtColor(src, &hsv, gocv.ColorBGRToHSV)
