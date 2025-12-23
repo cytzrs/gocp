@@ -1,4 +1,4 @@
-module gocp
+module github.com/cytzrs/gocp
 
 go 1.22.6
 
