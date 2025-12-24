@@ -46,7 +46,12 @@ func Test_Work(t *testing.T) {
 				fmt.Println("=====================p _failed=====================")
 				return
 			}
-			buf, err := Compress(p, "jpg", 25)
+			buf, err := Compress(p, &ImageCompressor{
+				Format:  "jpg",
+				Quality: 75,
+				Resize:  false,
+			})
+			
 			if err != nil {
 				fmt.Println("compressed_failed:" + err.Error())
 				return

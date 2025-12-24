@@ -8,6 +8,30 @@ import (
 	"gocv.io/x/gocv"
 )
 
+func Compress(imgPath string, params *ImageCompressor) ([]byte, error) {
+	img := gocv.IMRead(imgPath, gocv.IMReadColor)
+	defer img.Close()
+
+	if img.Empty() {
+		return nil, errors.New("failed to read image")
+	}
+
+	if params.Resize {
+		resized, err := resize(img, params.Width, params.Height)
+		if err != nil {
+			return nil, errors.New("failed to resize image")
+		}
+		img = resized
+	}
+
+	outBuf, err := encodeImage(img, params.Quality, params.Format)
+	if err != nil {
+		return nil, errors.New("failed to encode image")
+	}
+
+	return outBuf, nil
+}
+
 func fileSize(path string) (int64, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -16,32 +40,24 @@ func fileSize(path string) (int64, error) {
 	return fi.Size(), nil
 }
 
-func Compress(imgPath, format string, quality int) ([]byte, error) {
-	img := gocv.IMRead(imgPath, gocv.IMReadColor)
+func resize(img gocv.Mat, width, height int) (gocv.Mat, error) {
+	resized := gocv.NewMat()
+	defer resized.Close()
 
-	defer img.Close()
+	newWidth := min(img.Cols(), width)
+	newHeight := min(img.Rows(), height)
+	err := gocv.Resize(img, &resized, image.Point{newWidth, newHeight}, 0, 0, gocv.InterpolationArea)
 
-	if img.Empty() {
-		return nil, errors.New("failed to read image")
-	}
-
-	outBuf, err := encodeImageToWebP(img, quality, format)
-	if err != nil {
-		return nil, errors.New("failed to encode image")
-	}
-
-	return outBuf, nil
-
+	return resized, err
 }
 
-func encodeImageToWebP(img gocv.Mat, quality int, format string) ([]byte, error) {
-	// gocv.IMEncode accepts extension string and Mat, returns []byte
-	// quality param for webp: IMWRITE_WEBP_QUALITY
+func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
 	params := []int{
 		gocv.IMWriteJpegQuality, quality,
 		gocv.IMWriteJpegOptimize, 1,
 		gocv.IMWriteJpegChromaQuality, quality,
 	}
+
 	ext := ".jpg"
 	if format == "webp" {
 		params = []int{gocv.IMWriteWebpQuality, quality}
@@ -51,26 +67,21 @@ func encodeImageToWebP(img gocv.Mat, quality int, format string) ([]byte, error)
 	dst := gocv.NewMat()
 	defer dst.Close()
 
-	// newWidth := min(img.Cols(), 4096)
-	// newHeight := min(img.Rows(), 3072)
-
-	//newWidth := 4096
-	//newHeight := 3072
-
-	//gocv.CvtColor(img, &dst, gocv.ColorBGRToGray)
-	//gocv.Resize(img, &dst, image.Point{newWidth, newHeight}, 0, 0, gocv.InterpolationArea)
-
 	ksize := image.Point{3, 3}
 	sigmaX := 1.0
 	sigmaY := 1.0
 	borderType := gocv.BorderConstant
 
-	gocv.GaussianBlur(img, &dst, ksize, sigmaX, sigmaY, borderType)
+	err := gocv.GaussianBlur(img, &dst, ksize, sigmaX, sigmaY, borderType)
+	if err != nil {
+		return nil, err
+	}
 
 	buf, err := gocv.IMEncodeWithParams(gocv.FileExt(ext), dst, params)
 	if err != nil {
 		return nil, err
 	}
+
 	return buf.GetBytes(), nil
 }
 
