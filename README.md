@@ -4,7 +4,9 @@
 
 ```
 
-buf, err := Compress(p, "jpg", 25)
+import cp "github.com/cytzrs/gocp"
+
+buf, err := cp.Compress(p, "jpg", 25)
 if err != nil {
     fmt.Println("compressed_failed:" + err.Error())
     return
