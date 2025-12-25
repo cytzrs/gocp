@@ -49,9 +49,11 @@ func Test_Work(t *testing.T) {
 			buf, err := Compress(p, &ImageCompressor{
 				Format:  "jpg",
 				Quality: 75,
-				Resize:  false,
+				Resize:  true,
+				Height:  4096,
+				Width:   3072,
 			})
-			
+
 			if err != nil {
 				fmt.Println("compressed_failed:" + err.Error())
 				return

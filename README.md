@@ -7,7 +7,13 @@
 import cp "github.com/cytzrs/gocp"
 
 imgPath := "lion.jpg"
-buf, err := cp.Compress(imgPath, "jpg", 25)   // 参数1: 图片路径 参数2:输出格式 参数3:输出质量
+buf, err := Compress(p, &ImageCompressor{
+				Format:  "jpg",
+				Quality: 75,
+				Resize:  true,
+				Height:  4096,
+				Width:   3072,
+			})
 if err != nil {
     fmt.Println("compressed_failed:" + err.Error())
     return

@@ -17,11 +17,15 @@ func Compress(imgPath string, params *ImageCompressor) ([]byte, error) {
 	}
 
 	if params.Resize {
-		resized, err := resize(img, params.Width, params.Height)
+		resized := gocv.NewMat()
+		defer resized.Close()
+
+		err := resize(img, &resized, params.Width, params.Height)
 		if err != nil {
 			return nil, errors.New("failed to resize image")
 		}
-		img = resized
+
+		img = resized.Clone()
 	}
 
 	outBuf, err := encodeImage(img, params.Quality, params.Format)
@@ -40,15 +44,12 @@ func fileSize(path string) (int64, error) {
 	return fi.Size(), nil
 }
 
-func resize(img gocv.Mat, width, height int) (gocv.Mat, error) {
-	resized := gocv.NewMat()
-	defer resized.Close()
-
+func resize(img gocv.Mat, resized *gocv.Mat, width, height int) error {
 	newWidth := min(img.Cols(), width)
 	newHeight := min(img.Rows(), height)
-	err := gocv.Resize(img, &resized, image.Point{newWidth, newHeight}, 0, 0, gocv.InterpolationArea)
+	err := gocv.Resize(img, resized, image.Point{newWidth, newHeight}, 0, 0, gocv.InterpolationArea)
 
-	return resized, err
+	return err
 }
 
 func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
