@@ -25,6 +25,7 @@ func Compress(imgPath string, params *ImageCompressor) ([]byte, error) {
 			return nil, errors.New("failed to resize image")
 		}
 
+		img.Close()
 		img = resized.Clone()
 	}
 
