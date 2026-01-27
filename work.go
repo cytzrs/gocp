@@ -37,6 +37,35 @@ func Compress(imgPath string, params *ImageCompressor) ([]byte, error) {
 	return outBuf, nil
 }
 
+func CompressByBytes(src []byte, params *ImageCompressor) ([]byte, error) {
+	img, err := gocv.IMDecode(src, gocv.IMReadColor)
+	defer img.Close()
+
+	if img.Empty() {
+		return nil, errors.New("failed to read image")
+	}
+
+	if params.Resize {
+		resized := gocv.NewMat()
+		defer resized.Close()
+
+		err := resize(img, &resized, params.Width, params.Height)
+		if err != nil {
+			return nil, errors.New("failed to resize image")
+		}
+
+		img.Close()
+		img = resized.Clone()
+	}
+
+	outBuf, err := encodeImage(img, params.Quality, params.Format)
+	if err != nil {
+		return nil, errors.New("failed to encode image")
+	}
+
+	return outBuf, nil
+}
+
 func fileSize(path string) (int64, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
