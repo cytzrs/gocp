@@ -39,6 +39,9 @@ func Compress(imgPath string, params *ImageCompressor) ([]byte, error) {
 
 func CompressByBytes(src []byte, params *ImageCompressor) ([]byte, error) {
 	img, err := gocv.IMDecode(src, gocv.IMReadColor)
+	if err != nil {
+		return nil, err
+	}
 	defer img.Close()
 
 	if img.Empty() {
