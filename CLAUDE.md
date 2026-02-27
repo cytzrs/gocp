@@ -314,6 +314,41 @@ if buf == nil {
 4. **参数验证**：Quality 范围 0-100，Width/Height 应为正整数
 5. **格式转换**：从透明格式 (PNG) 转换到 JPG 时，透明通道会被合并
 
+## 已修复的内存泄漏问题
+
+### v0.0.8 修复：`encodeImage` 的 ByteVector 泄漏
+
+**问题**：`gocv.IMEncodeWithParams` 返回的 `ByteVector` 没有被 `Close()`
+
+```go
+// ❌ 修复前（内存泄漏）
+buf, err := gocv.IMEncodeWithParams(gocv.FileExt(ext), dst, params)
+if err != nil {
+    return nil, err
+}
+return buf.GetBytes(), nil  // buf 没有关闭！
+```
+
+**影响**：
+- 每次调用 `Compress` / `CompressByBytes` 泄漏 C++ std::vector 内存
+- 并发调用时内存快速增长
+- 长时间运行可能导致 OOM
+
+**修复**：
+```go
+// ✅ 修复后
+buf, err := gocv.IMEncodeWithParams(gocv.FileExt(ext), dst, params)
+if err != nil {
+    return nil, err
+}
+defer buf.Close()  // 释放 C 内存
+return buf.GetBytes(), nil
+```
+
+### v0.0.8 修复：`Optimize` 返回已关闭的 Mat
+
+详见上文 `Optimize` 函数说明。
+
 ## 测试数据
 
 `Test_Work` 函数需要准备测试图像目录：

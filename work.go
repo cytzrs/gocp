@@ -115,6 +115,7 @@ func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer buf.Close() // 释放 ByteVector 的 C 内存
 
 	return buf.GetBytes(), nil
 }
