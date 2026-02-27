@@ -119,6 +119,17 @@ func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
 	return buf.GetBytes(), nil
 }
 
+// Optimize 执行 HSV 色彩空间绿色背景移除，替换为白色背景。
+//
+// 注意：调用者负责关闭返回的 Mat（defer result.Close()），
+// 否则会造成底层 C 内存泄漏。
+//
+// 参数：
+//   src - 输入的 BGR 格式图像
+//
+// 返回：
+//   gocv.Mat - 处理后的图像，调用者必须手动 Close()
+//   error - 处理过程中的错误
 func Optimize(src gocv.Mat) (gocv.Mat, error) {
 	hsv := gocv.NewMat()
 	defer hsv.Close()
@@ -136,10 +147,13 @@ func Optimize(src gocv.Mat) (gocv.Mat, error) {
 	gocv.BitwiseNot(mask, &mask)
 
 	dst := gocv.NewMatWithSize(src.Rows(), src.Cols(), src.Type())
-	defer dst.Close()
 	dst.SetTo(gocv.NewScalar(255, 255, 255, 0)) // 白色背景
 
 	src.CopyToWithMask(&dst, mask)
 
-	return dst, nil
+	// 克隆结果以转移所有权给调用者，然后立即关闭临时 dst
+	result := dst.Clone()
+	dst.Close()
+
+	return result, nil
 }
