@@ -21,6 +21,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 构建与测试
 
+### Go 命令
+
 ```bash
 # 运行所有测试
 go test -v ./...
@@ -37,6 +39,34 @@ go test -cover ./...
 # 检查依赖
 go mod tidy
 go mod verify
+
+# 构建 CLI 工具
+go build -o gocp ./cmd/gocp
+```
+
+### Docker 构建命令
+
+```bash
+# 本地构建（当前架构）
+make build-local
+
+# 多架构构建（amd64, arm64）
+make build
+
+# 测试 Docker 镜像
+make test
+
+# 清理镜像
+make clean
+
+# 进入容器 shell
+make shell
+
+# 检查多架构 manifest
+make inspect
+
+# Lint Dockerfile（需要 hadolint）
+make lint
 ```
 
 ## 代码架构
@@ -166,6 +196,44 @@ for _, imgPath := range imageFiles {
         // 处理结果...
     })
 }
+```
+
+## CLI 工具使用
+
+项目包含一个命令行工具 `cmd/gocp/main.go`，可直接运行图像压缩：
+
+### 构建 CLI
+
+```bash
+go build -o gocp ./cmd/gocp
+```
+
+### 命令行参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `-quality` | 75 | 压缩质量 (0-100) |
+| `-format` | jpg | 输出格式 (jpg, webp) |
+| `-resize` | false | 是否调整尺寸 |
+| `-width` | 1920 | 目标宽度 |
+| `-height` | 1080 | 目标高度 |
+| `-version` | - | 显示版本信息 |
+| `-help` | - | 显示帮助 |
+
+### 使用示例
+
+```bash
+# 基本压缩
+./gocp input.jpg output.jpg
+
+# 高质量 WebP 输出
+./gocp -quality 85 -format webp input.png output.webp
+
+# 调整尺寸并压缩
+./gocp -resize -width 3072 -height 4096 input.jpg output.jpg
+
+# 查看版本
+./gocp -version
 ```
 
 ## 压缩参数建议
@@ -314,36 +382,68 @@ if buf == nil {
 4. **参数验证**：Quality 范围 0-100，Width/Height 应为正整数
 5. **格式转换**：从透明格式 (PNG) 转换到 JPG 时，透明通道会被合并
 
-## 已修复的内存泄漏问题
+## 已修复的内存问题
 
-### v0.0.8 修复：`encodeImage` 的 ByteVector 泄漏
+### v0.1.0 修复：`encodeImage` 的 use-after-free 漏洞（严重）
 
-**问题**：`gocv.IMEncodeWithParams` 返回的 `ByteVector` 没有被 `Close()`
+**问题根源**：gocv 的 `NativeByteBuffer.GetBytes()` 返回的是 **C 内存的视图（view）**，而非 Go 堆上的副本。
 
 ```go
-// ❌ 修复前（内存泄漏）
+// gocv v0.42.0 的实际实现
+func (buffer *NativeByteBuffer) GetBytes() []byte {
+    var result []byte
+    sliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(&result))
+    sliceHeader.Data = uintptr(buffer.dataPointer())  // ⚠️ 直接指向 C 内存！
+    return result
+}
+```
+
+**v0.0.8 的错误修复**：
+```go
+// ❌ v0.0.8 的修复（仍然有 bug！）
 buf, err := gocv.IMEncodeWithParams(gocv.FileExt(ext), dst, params)
 if err != nil {
     return nil, err
 }
-return buf.GetBytes(), nil  // buf 没有关闭！
+defer buf.Close()  // 函数返回时释放 C 内存
+return buf.GetBytes(), nil  // ⚠️ 返回指向已释放内存的切片！
 ```
+
+**执行顺序**：
+1. `buf.GetBytes()` 返回指向 C 内存的 `[]byte`
+2. `defer buf.Close()` 执行，释放 C++ std::vector 内存
+3. 函数返回 `[]byte`，但它指向已释放的内存
+4. 调用者访问时触发 **use-after-free**（未定义行为）
 
 **影响**：
-- 每次调用 `Compress` / `CompressByBytes` 泄漏 C++ std::vector 内存
-- 并发调用时内存快速增长
-- 长时间运行可能导致 OOM
+- 🔴 **严重安全漏洞**：返回悬空指针，访问已释放的内存
+- 🔴 **未定义行为**：可能崩溃、数据损坏、或被攻击者利用
+- 🔴 **并发场景高危**：多协程访问时问题更明显
+- 🔴 **难以调试**：Release 模式下可能"正常工作"，但任何时刻都可能出问题
 
-**修复**：
+**v0.1.0 正确修复**：
 ```go
-// ✅ 修复后
+// ✅ v0.1.0 的正确修复
 buf, err := gocv.IMEncodeWithParams(gocv.FileExt(ext), dst, params)
 if err != nil {
     return nil, err
 }
-defer buf.Close()  // 释放 C 内存
-return buf.GetBytes(), nil
+
+// ⚠️ 关键：必须在 Close() 之前复制数据到 Go 堆
+cBytes := buf.GetBytes()  // 获取 C 内存视图
+result := make([]byte, len(cBytes))
+copy(result, cBytes)  // 复制到 Go 堆
+
+buf.Close()  // 现在可以安全释放 C 内存
+
+return result, nil  // 返回 Go 堆上的独立副本
 ```
+
+**修复验证**：
+- 返回的 `[]byte` 是 Go 堆上的独立副本
+- 不依赖 C 生命周期
+- GC 可以正常管理
+- 并发安全
 
 ### v0.0.8 修复：`Optimize` 返回已关闭的 Mat
 
@@ -356,3 +456,47 @@ return buf.GetBytes(), nil
 - 输出路径：`./out/`
 
 运行测试前请确保存在有效的测试图像。
+
+## CI/CD
+
+### GitHub Actions
+
+项目使用 GitHub Actions 自动构建多架构 Docker 镜像：
+
+- **触发条件**：推送到 `main` 分支、创建 tag (`v*`)、或手动触发
+- **支持架构**：`linux/amd64`, `linux/arm64`
+- **镜像仓库**：`docker.io/cytzrs/gocp`
+- **特性**：
+  - 使用 Buildx 多架构构建
+  - 支持 SBOM 和 Provenance
+  - GitHub Actions 缓存加速构建
+
+### Docker 镜像使用
+
+```bash
+# 拉取镜像
+docker pull cytzrs/gocp:latest
+
+# 运行容器压缩图像
+docker run --rm -v $(pwd):/data cytzrs/gocp:latest \
+    -quality 85 -resize -width 3072 -height 4096 \
+    /data/input.jpg /data/output.jpg
+```
+
+## 测试文件说明
+
+### work_test.go
+
+- `Test_Work` - 批量图像处理测试，使用 `ants` 协程池并行处理
+- `walkImages(root string)` - 递归遍历目录获取所有图像文件
+- `isImageExt(name string)` - 检查文件扩展名是否为支持的图像格式
+
+### bytevector_test.go
+
+用于验证 `gocv.ByteVector` 的内存管理行为：
+
+- `TestByteVectorGetBytesBehavior` - 验证 `GetBytes()` 返回的是数据的副本（安全）而非视图
+- `TestDeferAndGetBytesOrder` - 验证 `defer Close()` 后返回 `GetBytes()` 的安全性
+- `BenchmarkDeferAndGetBytes` - 性能基准测试
+
+这些测试确认了 `encodeImage` 函数中 `defer buf.Close()` 的正确性。

@@ -115,9 +115,17 @@ func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer buf.Close() // 释放 ByteVector 的 C 内存
 
-	return buf.GetBytes(), nil
+	// ⚠️ 关键：必须在 Close() 之前复制数据到 Go 堆
+	// gocv 的 GetBytes() 返回指向 C 内存的视图，不是副本
+	// 如果先 Close() 再返回 GetBytes()，会导致 use-after-free
+	cBytes := buf.GetBytes()
+	result := make([]byte, len(cBytes))
+	copy(result, cBytes)
+
+	buf.Close() // 释放 ByteVector 的 C 内存
+
+	return result, nil
 }
 
 // Optimize 执行 HSV 色彩空间绿色背景移除，替换为白色背景。
@@ -126,11 +134,13 @@ func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
 // 否则会造成底层 C 内存泄漏。
 //
 // 参数：
-//   src - 输入的 BGR 格式图像
+//
+//	src - 输入的 BGR 格式图像
 //
 // 返回：
-//   gocv.Mat - 处理后的图像，调用者必须手动 Close()
-//   error - 处理过程中的错误
+//
+//	gocv.Mat - 处理后的图像，调用者必须手动 Close()
+//	error - 处理过程中的错误
 func Optimize(src gocv.Mat) (gocv.Mat, error) {
 	hsv := gocv.NewMat()
 	defer hsv.Close()
