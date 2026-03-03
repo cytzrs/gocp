@@ -32,3 +32,18 @@ go.work.sum
 # .vscode/
 CLAUDE.md
 aidocs/*
+
+# Optional CLI tool (this is a library, not an application)
+cmd/
+
+# Optional: Concurrent stress tests
+# concurrent_test.go
+
+# Docker and deployment (library doesn't need these)
+Dockerfile*
+.dockerignore
+Makefile
+*.sh
+.github/
+docker/
+docs/
