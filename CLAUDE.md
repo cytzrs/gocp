@@ -29,12 +29,19 @@ go test -v ./...
 
 # 运行特定测试
 go test -v -run Test_Work ./...
+go test -v -run TestMemoryLeakDetection ./...
 
-# 构建模块
-go build ./...
+# 运行特定包的测试
+go test -v ./...
 
 # 测试覆盖率
 go test -cover ./...
+
+# 基准测试
+go test -bench=. -benchmem ./...
+
+# 构建模块
+go build ./...
 
 # 检查依赖
 go mod tidy
@@ -471,6 +478,24 @@ return result, nil  // 返回 Go 堆上的独立副本
   - 支持 SBOM 和 Provenance
   - GitHub Actions 缓存加速构建
 
+### 版本发布流程
+
+```bash
+# 1. 确保在 main 分支且代码已合并
+git checkout main
+git pull origin main
+
+# 2. 更新版本号（如果有 version.go 或类似文件）
+# 3. 创建 git tag 触发 CI/CD 构建
+git tag v1.0.1
+git push origin v1.0.1
+
+# 4. GitHub Actions 会自动构建并推送多架构镜像到 Docker Hub
+# 5. 验证镜像发布
+docker pull cytzrs/gocp:v1.0.1
+docker buildx imagetools inspect cytzrs/gocp:v1.0.1
+```
+
 ### Docker 镜像使用
 
 ```bash
@@ -500,3 +525,26 @@ docker run --rm -v $(pwd):/data cytzrs/gocp:latest \
 - `BenchmarkDeferAndGetBytes` - 性能基准测试
 
 这些测试确认了 `encodeImage` 函数中 `defer buf.Close()` 的正确性。
+
+### memory_leak_test.go
+
+用于验证内存泄漏问题的回归测试：
+
+- `TestMemoryLeakDetection` - 循环调用 `CompressByBytes` 1000 次，监控 Stack 和 Heap 内存增长
+- `TestMemoryLeakDetectionParallel` - 使用协程池并发测试 1000 次压缩操作
+
+**运行内存泄漏测试**：
+```bash
+# 单独运行内存泄漏测试
+go test -v -run TestMemoryLeakDetection ./...
+go test -v -run TestMemoryLeakDetectionParallel ./...
+
+# 运行所有测试
+go test -v ./...
+```
+
+**测试说明**：
+- 测试会循环压缩 1000 次，每 100 次 GC 后检查内存增长
+- Stack 增长超过 10MB 会触发警告
+- 最终 Stack 增长超过 20MB 会判定为内存泄漏
+- 并发测试使用 16 线程池，模拟真实生产场景
