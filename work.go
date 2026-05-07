@@ -29,7 +29,7 @@ func Compress(imgPath string, params *ImageCompressor) ([]byte, error) {
 		img = resized.Clone()
 	}
 
-	outBuf, err := encodeImage(img, params.Quality, params.Format)
+	outBuf, err := encodeImage(img, params.Quality, params.Format, params.Watermark)
 	if err != nil {
 		return nil, errors.New("failed to encode image")
 	}
@@ -61,7 +61,7 @@ func CompressByBytes(src []byte, params *ImageCompressor) ([]byte, error) {
 		img = resized.Clone()
 	}
 
-	outBuf, err := encodeImage(img, params.Quality, params.Format)
+	outBuf, err := encodeImage(img, params.Quality, params.Format, params.Watermark)
 	if err != nil {
 		return nil, errors.New("failed to encode image")
 	}
@@ -85,7 +85,7 @@ func resize(img gocv.Mat, resized *gocv.Mat, width, height int) error {
 	return err
 }
 
-func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
+func encodeImage(img gocv.Mat, quality int, format string, wm *WatermarkConfig) ([]byte, error) {
 	params := []int{
 		gocv.IMWriteJpegQuality, quality,
 		gocv.IMWriteJpegOptimize, 1,
@@ -111,6 +111,12 @@ func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
 		return nil, err
 	}
 
+	if wm != nil && len(wm.Labels) > 0 {
+		if err := applyWatermark(&dst, wm); err != nil {
+			return nil, err
+		}
+	}
+
 	buf, err := gocv.IMEncodeWithParams(gocv.FileExt(ext), dst, params)
 	if err != nil {
 		return nil, err
@@ -126,6 +132,36 @@ func encodeImage(img gocv.Mat, quality int, format string) ([]byte, error) {
 	buf.Close() // 释放 ByteVector 的 C 内存
 
 	return result, nil
+}
+
+// applyWatermark 在图片左下角绘制多行文字水印。
+// Hershey 字体仅支持 ASCII，中文会显示为乱码。
+func applyWatermark(img *gocv.Mat, wm *WatermarkConfig) error {
+	fontFace := wm.FontFace
+	fontScale := wm.FontScale
+	thickness := 1
+	padding := wm.Padding
+
+	fontHeight := gocv.GetTextSize("Ay", fontFace, fontScale, thickness).Y
+	lineSpacing := fontHeight / 3
+	if lineSpacing < 4 {
+		lineSpacing = 4
+	}
+
+	y := img.Rows() - padding - len(wm.Labels)*(fontHeight+lineSpacing) + lineSpacing
+
+	for _, label := range wm.Labels {
+		if label == "" {
+			y += fontHeight + lineSpacing
+			continue
+		}
+		org := image.Point{X: padding, Y: y + fontHeight}
+		if err := gocv.PutText(img, label, org, fontFace, fontScale, wm.Color, thickness); err != nil {
+			return err
+		}
+		y += fontHeight + lineSpacing
+	}
+	return nil
 }
 
 // Optimize 执行 HSV 色彩空间绿色背景移除，替换为白色背景。
